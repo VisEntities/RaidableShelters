@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 namespace Oxide.Plugins
 {
     [Info("Raidable Shelters", "VisEntities", "1.0.0")]
-    [Description("Spawns legacy shelters filled with random loot for players to raid.")]
+    [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
         #region Fields
