@@ -364,7 +364,7 @@ namespace Oxide.Plugins
                     if (TryFindSuitableShelterSpawnPoint(player.transform.position, _config.MinimumSearchRadiusForShelterPositionAroundPlayer, _config.MaximumSearchRadiusForShelterPositionAroundPlayer,
                         _config.NumberOfAttemptsToFindShelterPositionNearPlayers, out shelterPosition, out shelterRotation))
                     {
-                        LegacyShelter shelter = SpawnLegacyShelter(shelterPosition, shelterRotation);
+                        LegacyShelter shelter = SpawnLegacyShelter(shelterPosition, shelterRotation, player);
                     }
                 }
 
@@ -403,14 +403,24 @@ namespace Oxide.Plugins
             return false;
         }
 
-        private LegacyShelter SpawnLegacyShelter(Vector3 position, Quaternion rotation)
+        private LegacyShelter SpawnLegacyShelter(Vector3 position, Quaternion rotation, BasePlayer player)
         {
             LegacyShelter shelter = GameManager.server.CreateEntity(PREFAB_LEGACY_SHELTER, position, rotation) as LegacyShelter;
             if (shelter == null)
                 return null;
 
-            shelter.OnPlaced(null);
+            shelter.OnPlaced(player);
             shelter.Spawn();
+
+            // Set the lock owner id to 0 to prevent the player from opening the shelter door.
+            LegacyShelterDoor shelterDoor = shelter.GetChildDoor();
+            if (shelterDoor != null)
+            {
+                BaseLock baseLock = shelterDoor.GetSlot(BaseEntity.Slot.Lock) as BaseLock;
+                if (baseLock != null)
+                    baseLock.OwnerID = 0;
+            }
+
             StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds);
 
             _spawnedShelters[shelter] = new List<BaseEntity>();
