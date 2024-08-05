@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.0.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.1.0")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -165,6 +165,16 @@ namespace Oxide.Plugins
             if (string.Compare(_config.Version, "1.0.0") < 0)
                 _config = defaultConfig;
 
+            if (string.Compare(_config.Version, "1.1.0") < 0)
+            {
+                _config.Notification = defaultConfig.Notification;
+
+                foreach (InteriorEntityConfig interiorEntityConfig in _config.InteriorEntities)
+                {
+                    interiorEntityConfig.SkinIds = new List<ulong>();
+                }
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -189,7 +199,7 @@ namespace Oxide.Plugins
                 {
                     NotifySurroundingPlayersOfShelterSpawn = false,
                     RadiusForNotifyingNearbyPlayers = 40f,
-                    SendAsToast = false
+                    SendAsToast = true
                 },
                 InteriorEntities = new List<InteriorEntityConfig>
                 {
