@@ -7,6 +7,7 @@
 using Facepunch;
 using Newtonsoft.Json;
 using Oxide.Core;
+using ProtoBuf;
 using Rust;
 using System.Collections;
 using System.Collections.Generic;
@@ -419,6 +420,13 @@ namespace Oxide.Plugins
                 BaseLock baseLock = shelterDoor.GetSlot(BaseEntity.Slot.Lock) as BaseLock;
                 if (baseLock != null)
                     baseLock.OwnerID = 0;
+            }
+
+            EntityPrivilege entityPrivilege = shelter.GetEntityPrivilege();
+            if (entityPrivilege != null)
+            {
+                entityPrivilege.authorizedPlayers.Clear();
+                entityPrivilege.SendNetworkUpdate(BasePlayer.NetworkQueue.Update);
             }
 
             StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds);
