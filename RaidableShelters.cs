@@ -188,7 +188,7 @@ namespace Oxide.Plugins
                 Notification = new NotificationConfig
                 {
                     NotifySurroundingPlayersOfShelterSpawn = false,
-                    RadiusForNotifyingNearbyPlayers = 35f,
+                    RadiusForNotifyingNearbyPlayers = 40f,
                     SendAsToast = false
                 },
                 InteriorEntities = new List<InteriorEntityConfig>
@@ -636,11 +636,15 @@ namespace Oxide.Plugins
                             if (!EntityFitsInShelter(shelter, interiorEntityConfig.PrefabName, randomPosition, finalRotation))
                                 continue;
 
+                            if (ExposedHook.OnShelterInteriorEntitySpawn(shelter, interiorEntityConfig.PrefabName, randomPosition, finalRotation))
+                                continue;
+
                             BaseEntity entity = SpawnInteriorEntity(shelter, randomPosition, finalRotation, interiorEntityConfig);
                             if (entity == null)
                                 continue;
 
                             shelterData.InteriorEntities.Add(entity.net.ID.Value);
+                            ExposedHook.OnShelterInteriorEntitySpawned(shelter, entity);
 
                             posAttempt = maxPositionAttempts;
                             break;
@@ -820,8 +824,35 @@ namespace Oxide.Plugins
 
         #endregion Shelters Removal
 
+        #region Exposed Hooks
+
+        private static class ExposedHook
+        {
+            public static bool OnShelterInteriorEntitySpawn(LegacyShelter shelter, string prefabName, Vector3 position, Quaternion rotation)
+            {
+                object hookResult = Interface.CallHook("OnShelterInteriorEntitySpawn", shelter, prefabName, position, rotation);
+                return hookResult is bool && (bool)hookResult == false;
+            }
+            
+            public static void OnShelterInteriorEntitySpawned(LegacyShelter shelter, BaseEntity entity)
+            {
+                Interface.CallHook("OnShelterInteriorEntitySpawned", shelter, entity);
+            }
+        }
+
+        #endregion Exposed Hooks
+
+        #region API
+
+        private bool API_RaidableShelter(LegacyShelter shelter)
+        {
+            return _storedData.Shelters.ContainsKey(shelter.net.ID.Value);
+        }
+
+        #endregion API
+
         #region Helper Functions
-        
+
         private BaseEntity FindEntityById(ulong id)
         {
             return BaseNetworkable.serverEntities.Find(new NetworkableId(id)) as BaseEntity;
