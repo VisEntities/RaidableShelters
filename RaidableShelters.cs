@@ -11,6 +11,7 @@ using Rust;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using UnityEngine;
 using Random = UnityEngine.Random;
@@ -25,14 +26,15 @@ namespace Oxide.Plugins
 
         private static RaidableShelters _plugin;
         private static Configuration _config;
+        private StoredData _storedData;
 
         private System.Random _randomGenerator = new System.Random();
         private Timer _sheltersRespawnTimer;
-        private Dictionary<LegacyShelter, List<BaseEntity>> _spawnedShelters = new Dictionary<LegacyShelter, List<BaseEntity>>();
         
         private const int LAYER_TERRAIN = Layers.Mask.Terrain;
         private const int LAYER_PLAYER = Layers.Mask.Player_Server;
         private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
+        
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
         private const float SPAWNABLE_AREA_RADIUS_INSIDE_SHELTER = 1.7f;
 
@@ -348,11 +350,102 @@ namespace Oxide.Plugins
 
         #endregion Configuration
 
+        #region Data Utility
+
+        public class DataFileUtil
+        {
+            private const string FOLDER = "";
+
+            public static string GetFilePath(string filename = null)
+            {
+                if (filename == null)
+                    filename = _plugin.Name;
+
+                return Path.Combine(FOLDER, filename);
+            }
+
+            public static string[] GetAllFilePaths()
+            {
+                string[] filePaths = Interface.Oxide.DataFileSystem.GetFiles(FOLDER);
+
+                for (int i = 0; i < filePaths.Length; i++)
+                {
+                    // Remove the redundant '.json' from the filepath. This is necessary because the filepaths are returned with a double '.json'.
+                    filePaths[i] = filePaths[i].Substring(0, filePaths[i].Length - 5);
+                }
+
+                return filePaths;
+            }
+
+            public static bool Exists(string filePath)
+            {
+                return Interface.Oxide.DataFileSystem.ExistsDatafile(filePath);
+            }
+
+            public static T Load<T>(string filePath) where T : class, new()
+            {
+                T data = Interface.Oxide.DataFileSystem.ReadObject<T>(filePath);
+                if (data == null)
+                    data = new T();
+
+                return data;
+            }
+
+            public static T LoadIfExists<T>(string filePath) where T : class, new()
+            {
+                if (Exists(filePath))
+                    return Load<T>(filePath);
+                else
+                    return null;
+            }
+
+            public static T LoadOrCreate<T>(string filePath) where T : class, new()
+            {
+                T data = LoadIfExists<T>(filePath);
+                if (data == null)
+                    data = new T();
+
+                return data;
+            }
+
+            public static void Save<T>(string filePath, T data)
+            {
+                Interface.Oxide.DataFileSystem.WriteObject<T>(filePath, data);
+            }
+
+            public static void Delete(string filePath)
+            {
+                Interface.Oxide.DataFileSystem.DeleteDataFile(filePath);
+            }
+        }
+
+        #endregion Data Utility
+
+        #region Stored Data
+
+        public class StoredData
+        {
+            [JsonProperty("Raidable Shelters")]
+            public Dictionary<ulong, ShelterData> Shelters { get; set; } = new Dictionary<ulong, ShelterData>();
+        }
+
+        public class ShelterData
+        {
+            [JsonProperty("Interior Entities")]
+            public List<ulong> InteriorEntities { get; set; } = new List<ulong>();
+
+            [JsonProperty("Removal Timer")]
+            public double RemovalTimer { get; set; }
+        }
+
+        #endregion Stored Data
+
         #region Oxide Hooks
 
         private void Init()
         {
             _plugin = this;
+            _storedData = DataFileUtil.LoadOrCreate<StoredData>(DataFileUtil.GetFilePath());
         }
 
         private void Unload()
@@ -372,6 +465,8 @@ namespace Oxide.Plugins
             {
                 CoroutineUtil.StartCoroutine("RespawnSheltersCoroutine", RespawnSheltersCoroutine());
             });
+
+            ResumeShelterRemovalTimers();
         }
 
         #endregion Oxide Hooks
@@ -458,10 +553,14 @@ namespace Oxide.Plugins
                 entityPrivilege.SendNetworkUpdate(BasePlayer.NetworkQueue.Update);
             }
 
-            StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds);
+            ShelterData shelterData = new ShelterData
+            {
+                RemovalTimer = Time.realtimeSinceStartup + _config.ShelterLifetimeSeconds
+            };
+            _storedData.Shelters[shelter.net.ID.Value] = shelterData;
 
-            _spawnedShelters[shelter] = new List<BaseEntity>();
-            SpawnShelterInteriorEntities(shelter);
+            SpawnShelterInteriorEntities(shelter, shelterData);
+            StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds, shelterData);
 
             return shelter;
         }
@@ -503,7 +602,7 @@ namespace Oxide.Plugins
 
         #region Interior Entities Spawning
 
-        private void SpawnShelterInteriorEntities(LegacyShelter shelter)
+        private void SpawnShelterInteriorEntities(LegacyShelter shelter, ShelterData shelterData)
         {
             Vector3 shelterCenter = shelter.transform.position;
             float spawnRadius = SPAWNABLE_AREA_RADIUS_INSIDE_SHELTER;
@@ -540,6 +639,8 @@ namespace Oxide.Plugins
                             BaseEntity entity = SpawnInteriorEntity(shelter, randomPosition, finalRotation, interiorEntityConfig);
                             if (entity == null)
                                 continue;
+
+                            shelterData.InteriorEntities.Add(entity.net.ID.Value);
 
                             posAttempt = maxPositionAttempts;
                             break;
@@ -596,8 +697,6 @@ namespace Oxide.Plugins
             if (entity is StorageContainer storageContainer)
                 PopulateItems(storageContainer.inventory, _config.ItemsToSpawnInsideEntityContainers, interiorEntityConfig.PercentageToFillContainerWithItemsIfPresent);
 
-            _spawnedShelters[shelter].Add(entity);
-
             return entity;
         }
 
@@ -632,55 +731,101 @@ namespace Oxide.Plugins
         #endregion Entity Container Filling
 
         #region Shelters Removal
-
-        private void StartRemovalTimer(LegacyShelter shelter, float lifetimeSeconds)
+        
+        private void ResumeShelterRemovalTimers()
         {
-            timer.Once(lifetimeSeconds, () =>
+            foreach (var kvp in _storedData.Shelters)
             {
+                ShelterData shelterData = kvp.Value;
+                LegacyShelter shelter = FindEntityById(kvp.Key) as LegacyShelter;
+
                 if (shelter != null)
                 {
-                    if (_spawnedShelters.TryGetValue(shelter, out var entities))
-                    {
-                        foreach (BaseEntity entity in entities)
-                        {
-                            if (entity != null)
-                                entity.Kill();
-                        }
-                        _spawnedShelters.Remove(shelter);
-                    }
+                    double remainingTime = shelterData.RemovalTimer - Time.realtimeSinceStartup;
+                    StartRemovalTimer(shelter, (float)remainingTime, shelterData);
+                }
+            }
+        }
+
+        private void StartRemovalTimer(LegacyShelter shelter, float lifetimeSeconds, ShelterData shelterData)
+        {
+            if (lifetimeSeconds <= 0)
+            {
+                ulong shelterId = shelter.net.ID.Value;
+
+                if (shelter != null)
                     shelter.Kill();
+
+                foreach (ulong entityId in shelterData.InteriorEntities)
+                {
+                    BaseEntity entity = FindEntityById(entityId);
+                    if (entity != null)
+                        entity.Kill();
+                }
+
+                _storedData.Shelters.Remove(shelterId);
+                DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
+                return;
+            }
+
+            shelterData.RemovalTimer = Time.realtimeSinceStartup + lifetimeSeconds;
+            DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
+
+            timer.Once(lifetimeSeconds, () =>
+            {
+                ulong shelterId = shelter.net.ID.Value;
+
+                if (shelter != null)
+                {
+                    foreach (ulong entityId in shelterData.InteriorEntities)
+                    {
+                        BaseEntity entity = FindEntityById(entityId);
+                        if (entity != null)
+                            entity.Kill();
+                    }
+
+                    shelter.Kill();
+                }
+
+                if (_storedData.Shelters.ContainsKey(shelterId))
+                {
+                    _storedData.Shelters.Remove(shelterId);
+                    DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
                 }
             });
         }
 
         private void KillAllShelters()
         {
-            if (_spawnedShelters != null)
+            foreach (var kvp in _storedData.Shelters)
             {
-                foreach (var kvp in _spawnedShelters)
+                ShelterData shelterData = kvp.Value;
+                LegacyShelter shelter = BaseNetworkable.serverEntities.Find(new NetworkableId(kvp.Key)) as LegacyShelter;
+                if (shelter != null)
                 {
-                    var shelter = kvp.Key;
-                    var entities = kvp.Value;
-
-                    if (shelter != null)
+                    foreach (ulong entityId in shelterData.InteriorEntities)
                     {
-                        foreach (BaseEntity entity in entities)
-                        {
-                            if (entity != null)
-                                entity.Kill();
-                        }
-
-                        shelter.Kill();
+                        BaseEntity entity = BaseNetworkable.serverEntities.Find(new NetworkableId(entityId)) as BaseEntity;
+                        if (entity != null)
+                            entity.Kill();
                     }
-                }
 
-                _spawnedShelters.Clear();
+                    shelter.Kill();
+                }
             }
+
+            _storedData.Shelters.Clear();
+            DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
         }
 
         #endregion Shelters Removal
 
         #region Helper Functions
+        
+        private BaseEntity FindEntityById(ulong id)
+        {
+            return BaseNetworkable.serverEntities.Find(new NetworkableId(id)) as BaseEntity;
+        }
 
         private static BaseEntity FindBaseEntityForPrefab(string prefabName)
         {
