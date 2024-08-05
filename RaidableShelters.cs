@@ -7,7 +7,6 @@
 using Facepunch;
 using Newtonsoft.Json;
 using Oxide.Core;
-using ProtoBuf;
 using Rust;
 using System.Collections;
 using System.Collections.Generic;
@@ -90,8 +89,8 @@ namespace Oxide.Plugins
             [JsonProperty("Prefab Name")]
             public string PrefabName { get; set; }
 
-            [JsonProperty("Skin Id")]
-            public ulong SkinId { get; set; }
+            [JsonProperty("Skin Ids")]
+            public List<ulong> SkinIds { get; set; }
 
             [JsonProperty("Minimum Number To Spawn")]
             public int MinimumNumberToSpawn { get; set; }
@@ -173,7 +172,10 @@ namespace Oxide.Plugins
                     new InteriorEntityConfig
                     {
                         PrefabName = "assets/prefabs/deployable/woodenbox/woodbox_deployed.prefab",
-                        SkinId = 0,
+                         SkinIds = new List<ulong>
+                         {
+                             0
+                         },
                         MinimumNumberToSpawn = 1,
                         MaximumNumberToSpawn = 3,
                         PercentageToFillContainerWithItemsIfPresent = 20,
@@ -181,7 +183,10 @@ namespace Oxide.Plugins
                     new InteriorEntityConfig
                     {
                         PrefabName = "assets/prefabs/deployable/furnace/furnace.prefab",
-                        SkinId = 0,
+                         SkinIds = new List<ulong>
+                         {
+                             0
+                         },
                         MinimumNumberToSpawn = 1,
                         MaximumNumberToSpawn = 1,
                         PercentageToFillContainerWithItemsIfPresent = 0,
@@ -523,7 +528,11 @@ namespace Oxide.Plugins
             if (entity == null)
                 return null;
 
-            entity.skinID = interiorEntityConfig.SkinId;
+            if (interiorEntityConfig.SkinIds != null && interiorEntityConfig.SkinIds.Count > 0)
+            {
+                entity.skinID = interiorEntityConfig.SkinIds[Random.Range(0, interiorEntityConfig.SkinIds.Count)];
+            }
+
             entity.Spawn();
             RemoveProblematicComponents(entity);
 
