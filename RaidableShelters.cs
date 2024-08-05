@@ -185,9 +185,9 @@ namespace Oxide.Plugins
                 DelayBetweenEachShelterSpawnSeconds = 5f,
                 Notification = new NotificationConfig
                 {
-                    NotifySurroundingPlayersOfShelterSpawn = true,
-                    RadiusForNotifyingNearbyPlayers = 10f,
-                    SendAsToast = true
+                    NotifySurroundingPlayersOfShelterSpawn = false,
+                    RadiusForNotifyingNearbyPlayers = 35f,
+                    SendAsToast = false
                 },
                 InteriorEntities = new List<InteriorEntityConfig>
                 {
