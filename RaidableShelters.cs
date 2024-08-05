@@ -31,6 +31,7 @@ namespace Oxide.Plugins
         private Dictionary<LegacyShelter, List<BaseEntity>> _spawnedShelters = new Dictionary<LegacyShelter, List<BaseEntity>>();
         
         private const int LAYER_TERRAIN = Layers.Mask.Terrain;
+        private const int LAYER_PLAYER = Layers.Mask.Player_Server;
         private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
         private const float SPAWNABLE_AREA_RADIUS_INSIDE_SHELTER = 1.7f;
@@ -77,11 +78,26 @@ namespace Oxide.Plugins
             [JsonProperty("Number Of Attempts For Determining Entity Rotation Inside Shelter")]
             public int NumberOfAttemptsForDeterminingEntityRotationInsideShelter { get; set; }
 
+            [JsonProperty("Notification")]
+            public NotificationConfig Notification { get; set; }
+
             [JsonProperty("Interior Entities")]
             public List<InteriorEntityConfig> InteriorEntities { get; set; }
 
             [JsonProperty("Items To Spawn Inside Entity Containers")]
             public List<ItemInfo> ItemsToSpawnInsideEntityContainers { get; set; }
+        }
+
+        public class NotificationConfig
+        {
+            [JsonProperty("Notify Surrounding Players Of Shelter Spawn")]
+            public bool NotifySurroundingPlayersOfShelterSpawn { get; set; }
+
+            [JsonProperty("Radius For Notifying Nearby Players")]
+            public float RadiusForNotifyingNearbyPlayers { get; set; }
+
+            [JsonProperty("Send As Toast")]
+            public bool SendAsToast { get; set; }
         }
 
         public class InteriorEntityConfig
@@ -167,6 +183,12 @@ namespace Oxide.Plugins
                 NumberOfAttemptsForDeterminingEntityRotationInsideShelter = 30,
                 SheltersRespawnFrequencyMinutes = 60f,
                 DelayBetweenEachShelterSpawnSeconds = 5f,
+                Notification = new NotificationConfig
+                {
+                    NotifySurroundingPlayersOfShelterSpawn = true,
+                    RadiusForNotifyingNearbyPlayers = 10f,
+                    SendAsToast = true
+                },
                 InteriorEntities = new List<InteriorEntityConfig>
                 {
                     new InteriorEntityConfig
@@ -371,6 +393,8 @@ namespace Oxide.Plugins
                         _config.NumberOfAttemptsToFindShelterPositionNearPlayers, out shelterPosition, out shelterRotation))
                     {
                         LegacyShelter shelter = SpawnLegacyShelter(shelterPosition, shelterRotation, player);
+                        if (shelter != null)
+                            NotifyOfShelterSpawn(shelter, player);
                     }
                 }
 
@@ -443,6 +467,39 @@ namespace Oxide.Plugins
         }
 
         #endregion Shelters Spawning and Setup
+
+        #region Shelter Spawn Notification
+
+        private void NotifyOfShelterSpawn(LegacyShelter shelter, BasePlayer player)
+        {
+            if (_config.Notification.NotifySurroundingPlayersOfShelterSpawn)
+            {
+                List<BasePlayer> nearbyPlayers = Pool.GetList<BasePlayer>();
+                Vis.Entities(shelter.transform.position, _config.Notification.RadiusForNotifyingNearbyPlayers, nearbyPlayers, LAYER_PLAYER, QueryTriggerInteraction.Ignore);
+
+                foreach (BasePlayer nearbyPlayer in nearbyPlayers)
+                {
+                    if (nearbyPlayer == null)
+                        continue;
+
+                    if (_config.Notification.SendAsToast)
+                        SendToast(nearbyPlayer, Lang.RaidableShelterSpawned);
+                    else
+                        SendMessage(nearbyPlayer, Lang.RaidableShelterSpawned);
+                }
+
+                Pool.FreeList(ref nearbyPlayers);
+            }
+            else
+            {
+                if (_config.Notification.SendAsToast)
+                    SendToast(player, Lang.RaidableShelterSpawned);
+                else
+                    SendMessage(player, Lang.RaidableShelterSpawned);
+            }
+        }
+
+        #endregion Shelter Spawn Notification
 
         #region Interior Entities Spawning
 
@@ -896,5 +953,40 @@ namespace Oxide.Plugins
         }
 
         #endregion Helper Classes
+
+        #region Localization
+
+        private class Lang
+        {
+            public const string RaidableShelterSpawned = "RaidableShelterSpawned";
+        }
+
+        protected override void LoadDefaultMessages()
+        {
+            lang.RegisterMessages(new Dictionary<string, string>
+            {
+                [Lang.RaidableShelterSpawned] = "A raidable shelter has spawned nearby!",
+            }, this, "en");
+        }
+
+        private void SendMessage(BasePlayer player, string messageKey, params object[] args)
+        {
+            string message = lang.GetMessage(messageKey, this, player.UserIDString);
+            if (args.Length > 0)
+                message = string.Format(message, args);
+
+            SendReply(player, message);
+        }
+
+        private void SendToast(BasePlayer player, string messageKey, GameTip.Styles style = GameTip.Styles.Blue_Normal, params object[] args)
+        {
+            string message = lang.GetMessage(messageKey, this, player.UserIDString);
+            if (args.Length > 0)
+                message = string.Format(message, args);
+
+            player.SendConsoleCommand("gametip.showtoast", (int)style, message);
+        }
+
+        #endregion Localization
     }
 }
