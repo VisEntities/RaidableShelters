@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.2.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.3.0")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -504,6 +504,18 @@ namespace Oxide.Plugins
         }
 
         #endregion Oxide Hooks
+
+        #region True PVE Hooks
+
+        private object CanEntityTakeDamage(LegacyShelter shelter)
+        {
+            if (shelter == null || !API_IsShelterRaidable(shelter))
+                return null;
+
+            return true;
+        }
+
+        #endregion True PVE Hooks
 
         #region Shelters Spawning and Setup
 
