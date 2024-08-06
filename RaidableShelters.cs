@@ -853,12 +853,12 @@ namespace Oxide.Plugins
         #endregion Exposed Hooks
 
         #region API
-
-        private bool API_RaidableShelter(LegacyShelter shelter)
+        
+        private bool API_IsShelterRaidable(LegacyShelter shelter)
         {
             return _storedData.Shelters.ContainsKey(shelter.net.ID.Value);
         }
-
+        
         #endregion API
 
         #region Helper Functions
