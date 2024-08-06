@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.1.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.2.0")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -80,6 +80,9 @@ namespace Oxide.Plugins
             [JsonProperty("Number Of Attempts For Determining Entity Rotation Inside Shelter")]
             public int NumberOfAttemptsForDeterminingEntityRotationInsideShelter { get; set; }
 
+            [JsonProperty("Door")]
+            public DoorConfig Door { get; set; }
+
             [JsonProperty("Notification")]
             public NotificationConfig Notification { get; set; }
 
@@ -88,6 +91,12 @@ namespace Oxide.Plugins
 
             [JsonProperty("Items To Spawn Inside Entity Containers")]
             public List<ItemInfo> ItemsToSpawnInsideEntityContainers { get; set; }
+        }
+
+        public class DoorConfig
+        {
+            [JsonProperty("Skin Ids")]
+            public List<ulong> SkinIds { get; set; }
         }
 
         public class NotificationConfig
@@ -175,6 +184,11 @@ namespace Oxide.Plugins
                 }
             }
 
+            if (string.Compare(_config.Version, "1.2.0") < 0)
+            {
+                _config.Door = defaultConfig.Door;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -195,6 +209,16 @@ namespace Oxide.Plugins
                 NumberOfAttemptsForDeterminingEntityRotationInsideShelter = 30,
                 SheltersRespawnFrequencyMinutes = 60f,
                 DelayBetweenEachShelterSpawnSeconds = 5f,
+                Door = new DoorConfig
+                {
+                    SkinIds = new List<ulong>
+                    {
+                        809253752,
+                        2246937402,
+                        2483070538,
+                        3076134051
+                    }
+                },
                 Notification = new NotificationConfig
                 {
                     NotifySurroundingPlayersOfShelterSpawn = false,
@@ -554,6 +578,11 @@ namespace Oxide.Plugins
                 BaseLock baseLock = shelterDoor.GetSlot(BaseEntity.Slot.Lock) as BaseLock;
                 if (baseLock != null)
                     baseLock.OwnerID = 0;
+
+                if (_config.Door.SkinIds != null && _config.Door.SkinIds.Count > 0)
+                {
+                    shelterDoor.skinID = _config.Door.SkinIds[Random.Range(0, _config.Door.SkinIds.Count)];
+                }
             }
 
             EntityPrivilege entityPrivilege = shelter.GetEntityPrivilege();
