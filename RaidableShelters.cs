@@ -119,6 +119,9 @@ namespace Oxide.Plugins
             [JsonProperty("Skin Ids")]
             public List<ulong> SkinIds { get; set; }
 
+            [JsonProperty("Spawn Chance")]
+            public int SpawnChance { get; set; }
+
             [JsonProperty("Minimum Number To Spawn")]
             public int MinimumNumberToSpawn { get; set; }
 
@@ -189,6 +192,14 @@ namespace Oxide.Plugins
                 _config.Door = defaultConfig.Door;
             }
 
+            if (string.Compare(_config.Version, "1.3.0") < 0)
+            {
+                foreach(InteriorEntityConfig interiorEntityConfig in _config.InteriorEntities)
+                {
+                    interiorEntityConfig.SpawnChance = 50;
+                }
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -230,10 +241,11 @@ namespace Oxide.Plugins
                     new InteriorEntityConfig
                     {
                         PrefabName = "assets/prefabs/deployable/woodenbox/woodbox_deployed.prefab",
-                         SkinIds = new List<ulong>
-                         {
-                             0
-                         },
+                        SkinIds = new List<ulong>
+                        {
+                            0
+                        },
+                        SpawnChance = 50,
                         MinimumNumberToSpawn = 1,
                         MaximumNumberToSpawn = 3,
                         PercentageToFillContainerWithItemsIfPresent = 20,
@@ -241,10 +253,11 @@ namespace Oxide.Plugins
                     new InteriorEntityConfig
                     {
                         PrefabName = "assets/prefabs/deployable/furnace/furnace.prefab",
-                         SkinIds = new List<ulong>
-                         {
-                             0
-                         },
+                        SkinIds = new List<ulong>
+                        {
+                            0
+                        },
+                        SpawnChance = 50,
                         MinimumNumberToSpawn = 1,
                         MaximumNumberToSpawn = 1,
                         PercentageToFillContainerWithItemsIfPresent = 0,
@@ -664,6 +677,9 @@ namespace Oxide.Plugins
 
                 for (int i = 0; i < numberToSpawn; i++)
                 {
+                    if (!ChanceSucceeded(interiorEntityConfig.SpawnChance))
+                        continue;
+
                     Vector3 randomPosition;
                     int maxPositionAttempts = _config.NumberOfAttemptsForDeterminingEntityPositionInsideShelter;
                     int maxRotationAttempts = _config.NumberOfAttemptsForDeterminingEntityRotationInsideShelter;
@@ -937,6 +953,11 @@ namespace Oxide.Plugins
         {
             UnityEngine.Object.DestroyImmediate(entity.GetComponent<DestroyOnGroundMissing>());
             UnityEngine.Object.DestroyImmediate(entity.GetComponent<GroundWatch>());
+        }
+
+        private static bool ChanceSucceeded(int percentage)
+        {
+            return Random.Range(0, 100) < percentage;
         }
 
         #endregion Helper Functions
