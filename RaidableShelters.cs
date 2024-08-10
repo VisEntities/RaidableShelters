@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.3.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.4.0")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -46,6 +46,9 @@ namespace Oxide.Plugins
         {
             [JsonProperty("Version")]
             public string Version { get; set; }
+
+            [JsonProperty("Enable Debug")]
+            public bool EnableDebug { get; set; }
 
             [JsonProperty("Number Of Attempts To Find Shelter Position Near Players")]
             public int NumberOfAttemptsToFindShelterPositionNearPlayers { get; set; }
@@ -198,6 +201,11 @@ namespace Oxide.Plugins
                 {
                     interiorEntityConfig.SpawnChance = 50;
                 }
+            }
+
+            if (string.Compare(_config.Version, "1.4.0") < 0)
+            {
+                _config.EnableDebug = defaultConfig.EnableDebug;
             }
 
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
@@ -548,8 +556,38 @@ namespace Oxide.Plugins
                     {
                         LegacyShelter shelter = SpawnLegacyShelter(shelterPosition, shelterRotation, player);
                         if (shelter != null)
+                        {
                             NotifyOfShelterSpawn(shelter, player);
+
+                            if (_config.EnableDebug)
+                                DrawDebugInfo(shelterPosition, "Shelter spawn successful", ParseColor("#27AE60"), 4f);
+                        }
                     }
+                }
+                else if (_config.EnableDebug)
+                {
+                    string reason = "unknown reason";
+
+                    if (PlayerUtil.Wounded(player))
+                        reason = "player wounded";
+                    else if (PlayerUtil.Sleeping(player))
+                        reason = "player sleeping";
+                    else if (PlayerUtil.InBase(player))
+                        reason = "player in base";
+                    else if (PlayerUtil.Swimming(player))
+                        reason = "player swimming";
+                    else if (PlayerUtil.Boating(player))
+                        reason = "player boating";
+                    else if (PlayerUtil.Flying(player))
+                        reason = "player flying";
+                    else if (!PlayerUtil.OnGround(player))
+                        reason = "player not on ground";
+                    else if (PlayerUtil.NearEnemyBase(player))
+                        reason = "player near enemy base";
+                    else if (TerrainUtil.InRadTown(player.transform.position))
+                        reason = "player in radtown";
+
+                    DrawDebugInfo(player.transform.position, $"Shelter spawn failed:\n{reason}", ParseColor("#E12126"));
                 }
 
                 yield return CoroutineEx.waitForSeconds(_config.DelayBetweenEachShelterSpawnSeconds);
@@ -562,23 +600,72 @@ namespace Oxide.Plugins
             {
                 Vector3 position = TerrainUtil.GetRandomPositionAround(center, minSearchRadius, maxSearchRadius);
 
-                if (!TerrainUtil.InsideRock(position, _config.RocksAvoidanceRadius) && !TerrainUtil.InRadTown(position)
-                    && !TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES)
-                    && !PlayerUtil.HasPlayerNearby(position, _config.NearbyEntitiesAvoidanceRadius)
-                    && !TerrainUtil.InWater(position) && !TerrainUtil.OnRoadOrRail(position)
-                    && TerrainUtil.OnTerrain(position, 4f) && !TerrainUtil.InNoBuildZone(position, _config.DistanceFromNoBuildZones))
+                if (TerrainUtil.InsideRock(position, _config.RocksAvoidanceRadius))
                 {
-                    RaycastHit groundHit;
-                    if (TerrainUtil.GetGroundInfo(position, out groundHit, 5f, LAYER_TERRAIN))
-                    {
-                        suitablePosition = groundHit.point;
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nInside rock", ParseColor("#E12126"), _config.RocksAvoidanceRadius);
+                    continue;
+                }
 
-                        Quaternion surfaceRotation = Quaternion.FromToRotation(Vector3.up, groundHit.normal);
-                        Quaternion randomYRotation = Quaternion.Euler(0, Random.Range(0, 360), 0);
-                        suitableRotation = surfaceRotation * randomYRotation;
+                if (TerrainUtil.InRadTown(position))
+                {
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nIn radtown", ParseColor("#E12126"));
+                    continue;
+                }
 
-                        return true;
-                    }
+                if (TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES))
+                {
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nNearby entities", ParseColor("#E12126"), _config.NearbyEntitiesAvoidanceRadius);
+                    continue;
+                }
+
+                if (PlayerUtil.HasPlayerNearby(position, _config.NearbyEntitiesAvoidanceRadius))
+                {
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nNearby players", ParseColor("#E12126"), _config.NearbyEntitiesAvoidanceRadius);
+                    continue;
+                }
+
+                if (TerrainUtil.InWater(position))
+                {
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nIn water", ParseColor("#E12126"));
+                    continue;
+                }
+
+                if (TerrainUtil.OnRoadOrRail(position))
+                {
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nOn road or rail", ParseColor("#E12126"));
+                    continue;
+                }
+
+                if (!TerrainUtil.OnTerrain(position, 4f))
+                {
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nNot on terrain", ParseColor("#E12126"), 4f);
+                    continue;
+                }
+
+                if (TerrainUtil.InNoBuildZone(position, _config.DistanceFromNoBuildZones))
+                {
+                    if (_config.EnableDebug)
+                        DrawDebugInfo(position, "Spawn failed:\nIn no-build zone", ParseColor("#E12126"), _config.DistanceFromNoBuildZones);
+                    continue;
+                }
+
+                RaycastHit groundHit;
+                if (TerrainUtil.GetGroundInfo(position, out groundHit, 5f, LAYER_TERRAIN))
+                {
+                    suitablePosition = groundHit.point;
+
+                    Quaternion surfaceRotation = Quaternion.FromToRotation(Vector3.up, groundHit.normal);
+                    Quaternion randomYRotation = Quaternion.Euler(0, Random.Range(0, 360), 0);
+                    suitableRotation = surfaceRotation * randomYRotation;
+
+                    return true;
                 }
             }
 
@@ -891,6 +978,22 @@ namespace Oxide.Plugins
 
         #endregion Shelters Removal
 
+        #region Debug
+
+        private void DrawDebugInfo(Vector3 position, string info, Color color, float radius = 0.5f)
+        {
+            foreach (BasePlayer player in BasePlayer.activePlayerList)
+            {
+                if (player == null || !player.IsAdmin)
+                    continue;
+
+                DrawUtil.Text(player, 10f, color, position + Vector3.up * 1f, $"<size=30>{info}</size>");
+                DrawUtil.Sphere(player, 10f, color, position, radius);
+            }
+        }
+
+        #endregion Debug
+
         #region Exposed Hooks
 
         private static class ExposedHook
@@ -958,6 +1061,14 @@ namespace Oxide.Plugins
         private static bool ChanceSucceeded(int percentage)
         {
             return Random.Range(0, 100) < percentage;
+        }
+
+        private static Color ParseColor(string hexColor)
+        {
+            if (ColorUtility.TryParseHtmlString(hexColor, out Color color))
+                return color;
+
+            return Color.white;
         }
 
         #endregion Helper Functions
@@ -1197,6 +1308,34 @@ namespace Oxide.Plugins
                 {
                     StopCoroutine(coroutineName);
                 }
+            }
+        }
+
+        public static class DrawUtil
+        {
+            public static void Box(BasePlayer player, float durationSeconds, Color color, Vector3 position, float radius)
+            {
+                player.SendConsoleCommand("ddraw.box", durationSeconds, color, position, radius);
+            }
+
+            public static void Sphere(BasePlayer player, float durationSeconds, Color color, Vector3 position, float radius)
+            {
+                player.SendConsoleCommand("ddraw.sphere", durationSeconds, color, position, radius);
+            }
+
+            public static void Line(BasePlayer player, float durationSeconds, Color color, Vector3 fromPosition, Vector3 toPosition)
+            {
+                player.SendConsoleCommand("ddraw.line", durationSeconds, color, fromPosition, toPosition);
+            }
+
+            public static void Arrow(BasePlayer player, float durationSeconds, Color color, Vector3 fromPosition, Vector3 toPosition, float headSize)
+            {
+                player.SendConsoleCommand("ddraw.arrow", durationSeconds, color, fromPosition, toPosition, headSize);
+            }
+
+            public static void Text(BasePlayer player, float durationSeconds, Color color, Vector3 position, string text)
+            {
+                player.SendConsoleCommand("ddraw.text", durationSeconds, color, position, text);
             }
         }
 
