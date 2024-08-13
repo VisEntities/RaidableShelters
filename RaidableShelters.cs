@@ -74,6 +74,9 @@ namespace Oxide.Plugins
             [JsonProperty("Distance From No Build Zones")]
             public float DistanceFromNoBuildZones { get; set; }
 
+            [JsonProperty("Shelter Health")]
+            public float ShelterHealth { get; set; }
+
             [JsonProperty("Shelter Lifetime Seconds")]
             public float ShelterLifetimeSeconds { get; set; }
 
@@ -217,12 +220,14 @@ namespace Oxide.Plugins
             return new Configuration
             {
                 Version = Version.ToString(),
+                EnableDebug = false,
                 NumberOfAttemptsToFindShelterPositionNearPlayers = 5,
                 MinimumSearchRadiusForShelterPositionAroundPlayer = 20f,
                 MaximumSearchRadiusForShelterPositionAroundPlayer = 50f,
                 NearbyEntitiesAvoidanceRadius = 6f,
                 RocksAvoidanceRadius = 5f,
                 DistanceFromNoBuildZones = 10f,
+                ShelterHealth = 500f,
                 ShelterLifetimeSeconds = 600f,
                 NumberOfAttemptsForDeterminingEntityPositionInsideShelter = 30,
                 NumberOfAttemptsForDeterminingEntityRotationInsideShelter = 30,
@@ -683,10 +688,15 @@ namespace Oxide.Plugins
             shelter.OnPlaced(player);
             shelter.Spawn();
 
+            shelter.InitializeHealth(_config.ShelterHealth, _config.ShelterHealth);
+            shelter.SendNetworkUpdateImmediate();
+
             // Set the lock owner id to 0 to prevent the player from opening the shelter door.
             LegacyShelterDoor shelterDoor = shelter.GetChildDoor();
             if (shelterDoor != null)
             {
+                shelterDoor.InitializeHealth(_config.ShelterHealth, _config.ShelterHealth);
+
                 BaseLock baseLock = shelterDoor.GetSlot(BaseEntity.Slot.Lock) as BaseLock;
                 if (baseLock != null)
                     baseLock.OwnerID = 0;
@@ -1092,7 +1102,7 @@ namespace Oxide.Plugins
 
             public static bool OnTerrain(Vector3 position, float radius)
             {
-                return Physics.CheckSphere(position, radius, LAYER_TERRAIN, QueryTriggerInteraction.Ignore);
+                return Physics.CheckSphere(position, radius, Layers.Mask.Terrain, QueryTriggerInteraction.Ignore);
             }
 
             public static bool InNoBuildZone(Vector3 position, float radius)
