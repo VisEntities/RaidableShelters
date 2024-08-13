@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.4.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.5.0")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -209,6 +209,11 @@ namespace Oxide.Plugins
             if (string.Compare(_config.Version, "1.4.0") < 0)
             {
                 _config.EnableDebug = defaultConfig.EnableDebug;
+            }
+
+            if (string.Compare(_config.Version, "1.5.0") < 0)
+            {
+                _config.ShelterHealth = defaultConfig.ShelterHealth;
             }
 
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
@@ -1351,11 +1356,44 @@ namespace Oxide.Plugins
 
         #endregion Helper Classes
 
+        #region Commands
+
+        private static class Cmd
+        {
+            public const string TEST = "rs.test";
+        }
+
+        [ChatCommand(Cmd.TEST)]
+        private void cmdTest(BasePlayer player, string cmd, string[] args)
+        {
+            if (player == null || !player.IsAdmin)
+                return;
+            
+            RaycastHit groundHit;
+            if (TerrainUtil.GetGroundInfo(player.transform.position, out groundHit, 10f, LAYER_TERRAIN))
+            {
+                Vector3 spawnPosition = groundHit.point;
+
+                Quaternion surfaceRotation = Quaternion.FromToRotation(Vector3.up, groundHit.normal);
+                Quaternion randomYRotation = Quaternion.Euler(0, Random.Range(0, 360), 0);
+                Quaternion spawnRotation = surfaceRotation * randomYRotation;
+
+                LegacyShelter shelter = SpawnLegacyShelter(spawnPosition, spawnRotation, player);
+                if (shelter != null)
+                {
+                    SendMessage(player, Lang.TestShelterSpawned);
+                }
+            }
+        } 
+
+        #endregion Commands
+
         #region Localization
 
         private class Lang
         {
             public const string RaidableShelterSpawned = "RaidableShelterSpawned";
+            public const string TestShelterSpawned = "TestShelterSpawned";
         }
 
         protected override void LoadDefaultMessages()
@@ -1363,6 +1401,7 @@ namespace Oxide.Plugins
             lang.RegisterMessages(new Dictionary<string, string>
             {
                 [Lang.RaidableShelterSpawned] = "A raidable shelter has spawned nearby!",
+                [Lang.TestShelterSpawned] = "A test shelter has been spawned at your location."
             }, this, "en");
         }
 
