@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.5.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.5.1")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -922,33 +922,14 @@ namespace Oxide.Plugins
 
         private void StartRemovalTimer(LegacyShelter shelter, float lifetimeSeconds, ShelterData shelterData)
         {
+            ulong shelterId = shelter != null && shelter.net != null ? shelter.net.ID.Value : 0;
+
             if (lifetimeSeconds <= 0)
             {
-                ulong shelterId = shelter.net.ID.Value;
-
                 if (shelter != null)
                     shelter.Kill();
 
-                foreach (ulong entityId in shelterData.InteriorEntities)
-                {
-                    BaseEntity entity = FindEntityById(entityId);
-                    if (entity != null)
-                        entity.Kill();
-                }
-
-                _storedData.Shelters.Remove(shelterId);
-                DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
-                return;
-            }
-
-            shelterData.RemovalTimer = Time.realtimeSinceStartup + lifetimeSeconds;
-            DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
-
-            timer.Once(lifetimeSeconds, () =>
-            {
-                ulong shelterId = shelter.net.ID.Value;
-
-                if (shelter != null)
+                if (shelterData != null)
                 {
                     foreach (ulong entityId in shelterData.InteriorEntities)
                     {
@@ -956,8 +937,6 @@ namespace Oxide.Plugins
                         if (entity != null)
                             entity.Kill();
                     }
-
-                    shelter.Kill();
                 }
 
                 if (_storedData.Shelters.ContainsKey(shelterId))
@@ -965,7 +944,37 @@ namespace Oxide.Plugins
                     _storedData.Shelters.Remove(shelterId);
                     DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
                 }
-            });
+
+                return;
+            }
+
+            if (shelter != null)
+            {
+                shelterData.RemovalTimer = Time.realtimeSinceStartup + lifetimeSeconds;
+                DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
+
+                timer.Once(lifetimeSeconds, () =>
+                {
+                    if (shelter != null)
+                        shelter.Kill();
+
+                    if (shelterData != null)
+                    {
+                        foreach (ulong entityId in shelterData.InteriorEntities)
+                        {
+                            BaseEntity entity = FindEntityById(entityId);
+                            if (entity != null)
+                                entity.Kill();
+                        }
+                    }
+
+                    if (_storedData.Shelters.ContainsKey(shelterId))
+                    {
+                        _storedData.Shelters.Remove(shelterId);
+                        DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
+                    }
+                });
+            }
         }
 
         private void KillAllShelters()
