@@ -18,7 +18,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.5.1")]
+    [Info("Raidable Shelters", "VisEntities", "1.5.2")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -739,7 +739,7 @@ namespace Oxide.Plugins
         {
             if (_config.Notification.NotifySurroundingPlayersOfShelterSpawn)
             {
-                List<BasePlayer> nearbyPlayers = Pool.GetList<BasePlayer>();
+                List<BasePlayer> nearbyPlayers = Pool.Get<List<BasePlayer>>();
                 Vis.Entities(shelter.transform.position, _config.Notification.RadiusForNotifyingNearbyPlayers, nearbyPlayers, LAYER_PLAYER, QueryTriggerInteraction.Ignore);
 
                 foreach (BasePlayer nearbyPlayer in nearbyPlayers)
@@ -753,7 +753,7 @@ namespace Oxide.Plugins
                         SendMessage(nearbyPlayer, Lang.RaidableShelterSpawned);
                 }
 
-                Pool.FreeList(ref nearbyPlayers);
+                Pool.FreeUnmanaged(ref nearbyPlayers);
             }
             else
             {
@@ -1131,7 +1131,7 @@ namespace Oxide.Plugins
 
             public static bool InsideRock(Vector3 position, float radius)
             {
-                List<Collider> colliders = Pool.GetList<Collider>();
+                List<Collider> colliders = Pool.Get<List<Collider>>();
                 Vis.Colliders(position, radius, colliders, Layers.Mask.World, QueryTriggerInteraction.Ignore);
 
                 bool result = false;
@@ -1147,7 +1147,7 @@ namespace Oxide.Plugins
                     }
                 }
 
-                Pool.FreeList(ref colliders);
+                Pool.FreeUnmanaged(ref colliders);
                 return result;
             }
             
@@ -1170,7 +1170,7 @@ namespace Oxide.Plugins
 
             public static bool HasEntityNearby(Vector3 position, float radius, LayerMask mask, string prefabName = null)
             {
-                List<Collider> hitColliders = Pool.GetList<Collider>();
+                List<Collider> hitColliders = Pool.Get<List<Collider>>();
                 GamePhysics.OverlapSphere(position, radius, hitColliders, mask, QueryTriggerInteraction.Ignore);
 
                 bool hasEntityNearby = false;
@@ -1187,7 +1187,7 @@ namespace Oxide.Plugins
                     }
                 }
 
-                Pool.FreeList(ref hitColliders);
+                Pool.FreeUnmanaged(ref hitColliders);
                 return hasEntityNearby;
             }
 
