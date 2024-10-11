@@ -8,6 +8,7 @@ using Facepunch;
 using Newtonsoft.Json;
 using Oxide.Core;
 using Rust;
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Globalization;
@@ -18,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.5.2")]
+    [Info("Raidable Shelters", "VisEntities", "1.6.0")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -34,10 +35,15 @@ namespace Oxide.Plugins
         private const int LAYER_TERRAIN = Layers.Mask.Terrain;
         private const int LAYER_PLAYER = Layers.Mask.Player_Server;
         private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
-        
+
+        private const string PREFAB_AUTO_TURRET = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
+
         private const float SPAWNABLE_AREA_RADIUS_INSIDE_SHELTER = 1.7f;
 
+        private static readonly Vector3 _autoTurretPosition = new Vector3(0.084f, 3.146f, 0.481f);
+        private static readonly Vector3 _autoTurretRotation = new Vector3(355.103f, 0f, 0f);
+        
         #endregion Fields
 
         #region Configuration
@@ -89,6 +95,9 @@ namespace Oxide.Plugins
             [JsonProperty("Door")]
             public DoorConfig Door { get; set; }
 
+            [JsonProperty("Turret")]
+            public TurretConfig Turret { get; set; }
+
             [JsonProperty("Notification")]
             public NotificationConfig Notification { get; set; }
 
@@ -103,6 +112,30 @@ namespace Oxide.Plugins
         {
             [JsonProperty("Skin Ids")]
             public List<ulong> SkinIds { get; set; }
+        }
+
+        public class TurretConfig
+        {
+            [JsonProperty("Spawn Auto Turret")]
+            public bool SpawnAutoTurret { get; set; }
+
+            [JsonProperty("Health")]
+            public float Health { get; set; }
+
+            [JsonProperty("Weapon Short Name")]
+            public string WeaponShortName { get; set; }
+
+            [JsonProperty("Clip Ammo")]
+            public ItemInfo ClipAmmo { get; set; }
+
+            [JsonProperty("Reserve Ammo")]
+            public List<ItemInfo> ReserveAmmo { get; set; }
+
+            [JsonProperty("Attachment Short Names")]
+            public List<string> AttachmentShortNames { get; set; }
+
+            [JsonProperty("Peacekeeper")]
+            public bool Peacekeeper { get; set; }
         }
 
         public class NotificationConfig
@@ -140,8 +173,8 @@ namespace Oxide.Plugins
 
         public class ItemInfo
         {
-            [JsonProperty("Shortname")]
-            public string Shortname { get; set; }
+            [JsonProperty("ShortName")]
+            public string ShortName { get; set; }
 
             [JsonProperty("Skin Id")]
             public ulong SkinId { get; set; }
@@ -216,6 +249,11 @@ namespace Oxide.Plugins
                 _config.ShelterHealth = defaultConfig.ShelterHealth;
             }
 
+            if (string.Compare(_config.Version, "1.6.0") < 0)
+            {
+                _config.Turret = defaultConfig.Turret;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -247,6 +285,32 @@ namespace Oxide.Plugins
                         2483070538,
                         3076134051
                     }
+                },
+                Turret = new TurretConfig
+                {
+                    SpawnAutoTurret = false,
+                    Health = 1000f,
+                    WeaponShortName = "rifle.ak",
+                    ClipAmmo = new ItemInfo
+                    {
+                        ShortName = "ammo.rifle",
+                        MinimumAmount = 30,
+                        MaximumAmount = 30
+                    },
+                    ReserveAmmo = new List<ItemInfo>
+                    {
+                        new ItemInfo
+                        {
+                            ShortName = "ammo.rifle",
+                            MinimumAmount = 128,
+                            MaximumAmount = 128
+                        }
+                    },
+                    AttachmentShortNames = new List<string>
+                    {
+                        "weapon.mod.lasersight"
+                    },
+                    Peacekeeper = false,
                 },
                 Notification = new NotificationConfig
                 {
@@ -285,126 +349,126 @@ namespace Oxide.Plugins
                 {
                     new ItemInfo
                     {
-                        Shortname = "fat.animal",
+                        ShortName = "fat.animal",
                         SkinId = 0,
                         MinimumAmount = 10,
                         MaximumAmount = 25,
                     },
                     new ItemInfo
                     {
-                        Shortname = "cloth",
+                        ShortName = "cloth",
                         SkinId = 0,
                         MinimumAmount = 20,
                         MaximumAmount = 30,
                     },
                     new ItemInfo
                     {
-                        Shortname = "wood",
+                        ShortName = "wood",
                         SkinId = 0,
                         MinimumAmount = 200,
                         MaximumAmount = 400,
                     },
                     new ItemInfo
                     {
-                        Shortname = "syringe.medical",
+                        ShortName = "syringe.medical",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 2,
                     },
                     new ItemInfo
                     {
-                        Shortname = "rope",
+                        ShortName = "rope",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 3,
                     },
                     new ItemInfo
                     {
-                        Shortname = "cctv.camera",
+                        ShortName = "cctv.camera",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 1,
                     },
                     new ItemInfo
                     {
-                        Shortname = "roadsigns",
+                        ShortName = "roadsigns",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 2,
                     },
                     new ItemInfo
                     {
-                        Shortname = "stones",
+                        ShortName = "stones",
                         SkinId = 0,
                         MinimumAmount = 150,
                         MaximumAmount = 350,
                     },
                     new ItemInfo
                     {
-                        Shortname = "metal.fragments",
+                        ShortName = "metal.fragments",
                         SkinId = 0,
                         MinimumAmount = 30,
                         MaximumAmount = 90,
                     },
                     new ItemInfo
                     {
-                        Shortname = "ammo.grenadelauncher.he",
+                        ShortName = "ammo.grenadelauncher.he",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 2,
                     },
                     new ItemInfo
                     {
-                        Shortname = "coffeecan.helmet",
+                        ShortName = "coffeecan.helmet",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 1,
                     },
                     new ItemInfo
                     {
-                        Shortname = "scrap",
+                        ShortName = "scrap",
                         SkinId = 0,
                         MinimumAmount = 10,
                         MaximumAmount = 25,
                     },
                     new ItemInfo
                     {
-                        Shortname = "icepick.salvaged",
+                        ShortName = "icepick.salvaged",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 1,
                     },
                     new ItemInfo
                     {
-                        Shortname = "ptz.cctv.camera",
+                        ShortName = "ptz.cctv.camera",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 1,
                     },
                     new ItemInfo
                     {
-                        Shortname = "corn",
+                        ShortName = "corn",
                         SkinId = 0,
                         MinimumAmount = 3,
                         MaximumAmount = 5,
                     },
                     new ItemInfo
                     {
-                        Shortname = "ammo.rocket.mlrs",
+                        ShortName = "ammo.rocket.mlrs",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 1,
                     },
                     new ItemInfo
                     {
-                        Shortname = "wall.frame.garagedoor",
+                        ShortName = "wall.frame.garagedoor",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 1,
                     },
                     new ItemInfo
                     {
-                        Shortname = "pistol.revolver",
+                        ShortName = "pistol.revolver",
                         SkinId = 0,
                         MinimumAmount = 1,
                         MaximumAmount = 1,
@@ -725,6 +789,9 @@ namespace Oxide.Plugins
             };
             _storedData.Shelters[shelter.net.ID.Value] = shelterData;
 
+            if (_config.Turret.SpawnAutoTurret)
+                DeployAutoTurret(shelter);
+
             SpawnShelterInteriorEntities(shelter, shelterData);
             StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds, shelterData);
 
@@ -888,7 +955,7 @@ namespace Oxide.Plugins
                     break;
 
                 ItemInfo itemInfo = items[i];
-                var itemDefinition = ItemManager.FindItemDefinition(itemInfo.Shortname);
+                var itemDefinition = ItemManager.FindItemDefinition(itemInfo.ShortName);
                 if (itemDefinition != null)
                 {
                     int amountToAdd = Random.Range(itemInfo.MinimumAmount, itemInfo.MaximumAmount + 1);
@@ -903,8 +970,150 @@ namespace Oxide.Plugins
 
         #endregion Entity Container Filling
 
+        #region Turret Deployment and Setup
+
+        private void DeployAutoTurret(LegacyShelter shelter)
+        {
+            AutoTurret autoTurret = SpawnAutoTurret(shelter, _autoTurretPosition, Quaternion.Euler(_autoTurretRotation));
+            if (autoTurret != null)
+            {
+                AddWeaponToTurret(autoTurret);
+
+                LoadTurretWithReserveAmmo(autoTurret.inventory);
+                autoTurret.UpdateTotalAmmo();
+                autoTurret.EnsureReloaded();
+
+                autoTurret.SetPeacekeepermode(_config.Turret.Peacekeeper);
+                autoTurret.InitiateStartup();
+
+                autoTurret.SendNetworkUpdate();
+            }
+        }
+
+        private AutoTurret SpawnAutoTurret(LegacyShelter shelter, Vector3 position, Quaternion rotation)
+        {
+            AutoTurret autoTurret = GameManager.server.CreateEntity(PREFAB_AUTO_TURRET, position, rotation) as AutoTurret;
+            if (autoTurret == null)
+                return null;
+
+            autoTurret.SetParent(shelter);
+            autoTurret.Spawn();
+
+            autoTurret.InitializeHealth(_config.Turret.Health, _config.Turret.Health);
+            autoTurret.SendNetworkUpdateImmediate();
+
+            RemoveProblematicComponents(autoTurret);
+            HideIOInputsAndOutputs(autoTurret);
+
+            return autoTurret;
+        }
+
+        private Item AddWeaponToTurret(AutoTurret autoTurret)
+        {
+            Item item = ItemManager.CreateByName(_config.Turret.WeaponShortName);
+            if (item == null)
+                return null;
+
+            if (_config.Turret.AttachmentShortNames != null)
+            {
+                foreach (string attachmentShortname in _config.Turret.AttachmentShortNames)
+                {
+                    var attachmentItem = ItemManager.CreateByName(attachmentShortname);
+                    if (attachmentItem != null)
+                    {
+                        if (!attachmentItem.MoveToContainer(item.contents))
+                        {
+                            attachmentItem.Remove();
+                        }
+                    }
+                }
+            }
+
+            if (!item.MoveToContainer(autoTurret.inventory, 0))
+            {
+                item.Remove();
+                return null;
+            }
+
+            BaseProjectile weapon = item.GetHeldEntity() as BaseProjectile;
+            if (weapon != null)
+            {
+                if (_config.Turret.AttachmentShortNames != null)
+                {
+                    // Ensures the weapon's magazine capacity reflects the modifications applied, such as the extended magazine mod.
+                    weapon.DelayedModsChanged();
+                    weapon.CancelInvoke(weapon.DelayedModsChanged);
+                }
+
+                autoTurret.UpdateAttachedWeapon();
+                autoTurret.CancelInvoke(autoTurret.UpdateAttachedWeapon);
+
+                if (_config.Turret.ClipAmmo != null)
+                {
+                    ItemDefinition loadedAmmoItemDefinition = ItemManager.FindItemDefinition(_config.Turret.ClipAmmo.ShortName);
+                    if (loadedAmmoItemDefinition != null)
+                    {
+                        weapon.primaryMagazine.ammoType = loadedAmmoItemDefinition;
+
+                        int clipAmmoAmount = UnityEngine.Random.Range(_config.Turret.ClipAmmo.MinimumAmount, _config.Turret.ClipAmmo.MaximumAmount + 1);
+                        weapon.primaryMagazine.contents = Mathf.Min(weapon.primaryMagazine.capacity, clipAmmoAmount);
+                    }
+                }
+            }
+
+            return item;
+        }
+
+        private void LoadTurretWithReserveAmmo(ItemContainer autoTurretContainer)
+        {
+            if (_config.Turret.ReserveAmmo == null)
+                return;
+
+            // Starting from slot 1, because slot 0 is reserved for the weapon.
+            int currentSlot = 1;
+            int maximumAvailableSlots = autoTurretContainer.capacity - 1;
+
+            foreach (ItemInfo ammo in _config.Turret.ReserveAmmo)
+            {
+                if (currentSlot > maximumAvailableSlots)
+                    break;
+
+                if (ammo.MinimumAmount <= 0 && ammo.MaximumAmount <= 0)
+                    continue;
+
+                ItemDefinition itemDefinition = ItemManager.FindItemDefinition(ammo.ShortName);
+                if (itemDefinition == null)
+                    continue;
+
+                int reserveAmmoAmount = UnityEngine.Random.Range(ammo.MinimumAmount, ammo.MaximumAmount + 1);
+
+                int amountToAdd = Math.Min(reserveAmmoAmount, itemDefinition.stackable);
+                Item ammoItem = ItemManager.Create(itemDefinition, amountToAdd);
+                if (!ammoItem.MoveToContainer(autoTurretContainer, currentSlot))
+                {
+                    ammoItem.Remove();
+                }
+
+                if (ammoItem.parent != autoTurretContainer)
+                {
+                    Item destinationItem = autoTurretContainer.GetSlot(currentSlot);
+                    if (destinationItem != null)
+                    {
+                        destinationItem.amount = amountToAdd;
+                        destinationItem.MarkDirty();
+                    }
+
+                    ammoItem.Remove();
+                }
+
+                currentSlot++;
+            }
+        }
+
+        #endregion Turret Deployment and Setup
+
         #region Shelters Removal
-        
+
         private void ResumeShelterRemovalTimers()
         {
             foreach (var kvp in _storedData.Shelters)
@@ -1050,6 +1259,15 @@ namespace Oxide.Plugins
         private BaseEntity FindEntityById(ulong id)
         {
             return BaseNetworkable.serverEntities.Find(new NetworkableId(id)) as BaseEntity;
+        }
+
+        private static void HideIOInputsAndOutputs(IOEntity ioEntity)
+        {
+            foreach (var input in ioEntity.inputs)
+                input.type = IOEntity.IOType.Generic;
+
+            foreach (var output in ioEntity.outputs)
+                output.type = IOEntity.IOType.Generic;
         }
 
         private static BaseEntity FindBaseEntityForPrefab(string prefabName)
