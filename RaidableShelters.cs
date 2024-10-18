@@ -19,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.6.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.7.0")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -32,12 +32,14 @@ namespace Oxide.Plugins
         private System.Random _randomGenerator = new System.Random();
         private Timer _sheltersRespawnTimer;
         
-        private const int LAYER_TERRAIN = Layers.Mask.Terrain;
+        private const int LAYER_GROUND = Layers.Mask.Terrain | Layers.Mask.World | Layers.Mask.Default;
         private const int LAYER_PLAYER = Layers.Mask.Player_Server;
         private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
 
         private const string PREFAB_AUTO_TURRET = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
+        private const string PREFAB_LANDMINE = "assets/prefabs/deployable/landmine/landmine.prefab";
+        private const string PREFAB_BEAR_TRAP = "assets/prefabs/deployable/bear trap/beartrap.prefab";
 
         private const float SPAWNABLE_AREA_RADIUS_INSIDE_SHELTER = 1.7f;
 
@@ -98,6 +100,9 @@ namespace Oxide.Plugins
             [JsonProperty("Turret")]
             public TurretConfig Turret { get; set; }
 
+            [JsonProperty("Trap")]
+            public TrapConfig Trap { get; set; }
+
             [JsonProperty("Notification")]
             public NotificationConfig Notification { get; set; }
 
@@ -136,6 +141,27 @@ namespace Oxide.Plugins
 
             [JsonProperty("Peacekeeper")]
             public bool Peacekeeper { get; set; }
+        }
+
+        public class TrapConfig
+        {
+            [JsonProperty("Spawn Landmines")]
+            public bool SpawnLandmines { get; set; }
+
+            [JsonProperty("Spawn Bear Traps")]
+            public bool SpawnBearTraps { get; set; }
+
+            [JsonProperty("Minimum Number Of Traps To Spawn")]
+            public int MinimumNumberOfTrapsToSpawn { get; set; }
+
+            [JsonProperty("Maximum Number Of Traps To Spawn")]
+            public int MaximumNumberOfTrapsToSpawn { get; set; }
+
+            [JsonProperty("Minimum Spawn Radius Around Shelter")]
+            public float MinimumSpawnRadiusAroundShelter { get; set; }
+
+            [JsonProperty("Maximum Spawn Radius Around Shelter")]
+            public float MaximumSpawnRadiusAroundShelter { get; set; }
         }
 
         public class NotificationConfig
@@ -254,6 +280,11 @@ namespace Oxide.Plugins
                 _config.Turret = defaultConfig.Turret;
             }
 
+            if (string.Compare(_config.Version, "1.7.0") < 0)
+            {
+                _config.Trap = defaultConfig.Trap;
+            }
+
             PrintWarning("Config update complete! Updated from version " + _config.Version + " to " + Version.ToString());
             _config.Version = Version.ToString();
         }
@@ -311,6 +342,15 @@ namespace Oxide.Plugins
                         "weapon.mod.lasersight"
                     },
                     Peacekeeper = false,
+                },
+                Trap = new TrapConfig
+                {
+                    SpawnLandmines = false,
+                    SpawnBearTraps = true,
+                    MinimumSpawnRadiusAroundShelter = 3f,
+                    MaximumSpawnRadiusAroundShelter = 5f,
+                    MinimumNumberOfTrapsToSpawn = 1,
+                    MaximumNumberOfTrapsToSpawn = 5
                 },
                 Notification = new NotificationConfig
                 {
@@ -633,6 +673,12 @@ namespace Oxide.Plugins
                         {
                             NotifyOfShelterSpawn(shelter, player);
 
+                            if (_config.Trap.SpawnLandmines || _config.Trap.SpawnBearTraps)
+                                SpawnTrapsAroundShelter(shelter);
+
+                            if (_config.Turret.SpawnAutoTurret)
+                                DeployAutoTurret(shelter);
+
                             if (_config.EnableDebug)
                                 DrawDebugInfo(shelterPosition, "Shelter spawn successful", ParseColor("#27AE60"), 4f);
                         }
@@ -731,7 +777,7 @@ namespace Oxide.Plugins
                 }
 
                 RaycastHit groundHit;
-                if (TerrainUtil.GetGroundInfo(position, out groundHit, 5f, LAYER_TERRAIN))
+                if (TerrainUtil.GetGroundInfo(position, out groundHit, 5f, LAYER_GROUND))
                 {
                     suitablePosition = groundHit.point;
 
@@ -788,9 +834,6 @@ namespace Oxide.Plugins
                 RemovalTimer = Time.realtimeSinceStartup + _config.ShelterLifetimeSeconds
             };
             _storedData.Shelters[shelter.net.ID.Value] = shelterData;
-
-            if (_config.Turret.SpawnAutoTurret)
-                DeployAutoTurret(shelter);
 
             SpawnShelterInteriorEntities(shelter, shelterData);
             StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds, shelterData);
@@ -858,7 +901,7 @@ namespace Oxide.Plugins
                         randomPosition = TerrainUtil.GetRandomPositionAround(shelterCenter, minimumRadius: 0f, maximumRadius: spawnRadius);
 
                         RaycastHit groundHit;
-                        if (!TerrainUtil.GetGroundInfo(randomPosition, out groundHit, 2f, LAYER_TERRAIN))
+                        if (!TerrainUtil.GetGroundInfo(randomPosition, out groundHit, 2f, LAYER_GROUND))
                             continue;
 
                         randomPosition = groundHit.point;
@@ -1112,6 +1155,61 @@ namespace Oxide.Plugins
 
         #endregion Turret Deployment and Setup
 
+        #region Traps Spawning
+
+        private void SpawnTrapsAroundShelter(LegacyShelter shelter)
+        {
+            Vector3 shelterPosition = shelter.transform.position;
+            int numberOfTraps = Random.Range(_config.Trap.MinimumNumberOfTrapsToSpawn, _config.Trap.MaximumNumberOfTrapsToSpawn + 1);
+
+            for (int i = 0; i < numberOfTraps; i++)
+            {
+                Vector3 randomPosition = TerrainUtil.GetRandomPositionAround(shelterPosition, _config.Trap.MinimumSpawnRadiusAroundShelter, _config.Trap.MaximumSpawnRadiusAroundShelter);
+                
+                RaycastHit groundHit;
+                if (!TerrainUtil.GetGroundInfo(randomPosition, out groundHit, 5f, LAYER_GROUND))
+                    continue;
+
+                randomPosition = groundHit.point;
+                Quaternion surfaceRotation = Quaternion.FromToRotation(Vector3.up, groundHit.normal);
+
+                string trapPrefab = GetRandomTrapPrefab();
+                if (string.IsNullOrEmpty(trapPrefab))
+                    continue;
+
+                BaseEntity trapEntity = GameManager.server.CreateEntity(trapPrefab, randomPosition, surfaceRotation);
+                if (trapEntity != null)
+                {
+                    trapEntity.SetParent(shelter, true);
+                    trapEntity.Spawn();
+                    RemoveProblematicComponents(trapEntity);
+                }
+            }
+        }
+
+        private string GetRandomTrapPrefab()
+        {
+            if (_config.Trap.SpawnLandmines && _config.Trap.SpawnBearTraps)
+            {
+                if (CoinFlip())
+                    return PREFAB_LANDMINE;
+                else
+                    return PREFAB_BEAR_TRAP;
+            }
+            else if (_config.Trap.SpawnLandmines)
+            {
+                return PREFAB_LANDMINE;
+            }
+            else if (_config.Trap.SpawnBearTraps)
+            {
+                return PREFAB_BEAR_TRAP;
+            }
+
+            return null;
+        }
+
+        #endregion Traps Spawning
+
         #region Shelters Removal
 
         private void ResumeShelterRemovalTimers()
@@ -1251,11 +1349,16 @@ namespace Oxide.Plugins
         {
             return _storedData.Shelters.ContainsKey(shelter.net.ID.Value);
         }
-        
+
         #endregion API
 
         #region Helper Functions
 
+        private static bool CoinFlip()
+        {
+            return Random.Range(0, 2) == 0;
+        }
+       
         private BaseEntity FindEntityById(ulong id)
         {
             return BaseNetworkable.serverEntities.Find(new NetworkableId(id)) as BaseEntity;
@@ -1341,7 +1444,7 @@ namespace Oxide.Plugins
             {
                 return Physics.CheckSphere(position, radius, Layers.Mask.Prevent_Building);
             }
-            
+
             public static bool InWater(Vector3 position)
             {
                 return WaterLevel.Test(position, false, false);
@@ -1368,7 +1471,7 @@ namespace Oxide.Plugins
                 Pool.FreeUnmanaged(ref colliders);
                 return result;
             }
-            
+
             public static bool InRadTown(Vector3 position, bool shouldDisplayOnMap = false)
             {
                 foreach (var monumentInfo in TerrainMeta.Path.Monuments)
@@ -1597,7 +1700,7 @@ namespace Oxide.Plugins
                 return;
             
             RaycastHit groundHit;
-            if (TerrainUtil.GetGroundInfo(player.transform.position, out groundHit, 10f, LAYER_TERRAIN))
+            if (TerrainUtil.GetGroundInfo(player.transform.position, out groundHit, 10f, LAYER_GROUND))
             {
                 Vector3 spawnPosition = groundHit.point;
 
