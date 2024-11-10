@@ -19,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.7.0")]
+    [Info("Raidable Shelters", "VisEntities", "1.7.1")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -31,7 +31,7 @@ namespace Oxide.Plugins
 
         private System.Random _randomGenerator = new System.Random();
         private Timer _sheltersRespawnTimer;
-        
+
         private const int LAYER_GROUND = Layers.Mask.Terrain | Layers.Mask.World | Layers.Mask.Default;
         private const int LAYER_PLAYER = Layers.Mask.Player_Server;
         private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
@@ -45,7 +45,7 @@ namespace Oxide.Plugins
 
         private static readonly Vector3 _autoTurretPosition = new Vector3(0.084f, 3.146f, 0.481f);
         private static readonly Vector3 _autoTurretRotation = new Vector3(355.103f, 0f, 0f);
-        
+
         #endregion Fields
 
         #region Configuration
@@ -259,7 +259,7 @@ namespace Oxide.Plugins
 
             if (string.Compare(_config.Version, "1.3.0") < 0)
             {
-                foreach(InteriorEntityConfig interiorEntityConfig in _config.InteriorEntities)
+                foreach (InteriorEntityConfig interiorEntityConfig in _config.InteriorEntities)
                 {
                     interiorEntityConfig.SpawnChance = 50;
                 }
@@ -519,77 +519,6 @@ namespace Oxide.Plugins
 
         #endregion Configuration
 
-        #region Data Utility
-
-        public class DataFileUtil
-        {
-            private const string FOLDER = "";
-
-            public static string GetFilePath(string filename = null)
-            {
-                if (filename == null)
-                    filename = _plugin.Name;
-
-                return Path.Combine(FOLDER, filename);
-            }
-
-            public static string[] GetAllFilePaths()
-            {
-                string[] filePaths = Interface.Oxide.DataFileSystem.GetFiles(FOLDER);
-
-                for (int i = 0; i < filePaths.Length; i++)
-                {
-                    // Remove the redundant '.json' from the filepath. This is necessary because the filepaths are returned with a double '.json'.
-                    filePaths[i] = filePaths[i].Substring(0, filePaths[i].Length - 5);
-                }
-
-                return filePaths;
-            }
-
-            public static bool Exists(string filePath)
-            {
-                return Interface.Oxide.DataFileSystem.ExistsDatafile(filePath);
-            }
-
-            public static T Load<T>(string filePath) where T : class, new()
-            {
-                T data = Interface.Oxide.DataFileSystem.ReadObject<T>(filePath);
-                if (data == null)
-                    data = new T();
-
-                return data;
-            }
-
-            public static T LoadIfExists<T>(string filePath) where T : class, new()
-            {
-                if (Exists(filePath))
-                    return Load<T>(filePath);
-                else
-                    return null;
-            }
-
-            public static T LoadOrCreate<T>(string filePath) where T : class, new()
-            {
-                T data = LoadIfExists<T>(filePath);
-                if (data == null)
-                    data = new T();
-
-                return data;
-            }
-
-            public static void Save<T>(string filePath, T data)
-            {
-                Interface.Oxide.DataFileSystem.WriteObject<T>(filePath, data);
-            }
-
-            public static void Delete(string filePath)
-            {
-                Interface.Oxide.DataFileSystem.DeleteDataFile(filePath);
-            }
-        }
-
-        #endregion Data Utility
-
         #region Stored Data
 
         public class StoredData
@@ -602,6 +531,9 @@ namespace Oxide.Plugins
         {
             [JsonProperty("Interior Entities")]
             public List<ulong> InteriorEntities { get; set; } = new List<ulong>();
+
+            [JsonProperty("Traps")]
+            public List<ulong> Traps { get; set; } = new List<ulong>();
 
             [JsonProperty("Removal Timer")]
             public double RemovalTimer { get; set; }
@@ -672,12 +604,6 @@ namespace Oxide.Plugins
                         if (shelter != null)
                         {
                             NotifyOfShelterSpawn(shelter, player);
-
-                            if (_config.Trap.SpawnLandmines || _config.Trap.SpawnBearTraps)
-                                SpawnTrapsAroundShelter(shelter);
-
-                            if (_config.Turret.SpawnAutoTurret)
-                                DeployAutoTurret(shelter);
 
                             if (_config.EnableDebug)
                                 DrawDebugInfo(shelterPosition, "Shelter spawn successful", ParseColor("#27AE60"), 4f);
@@ -835,9 +761,21 @@ namespace Oxide.Plugins
             };
             _storedData.Shelters[shelter.net.ID.Value] = shelterData;
 
-            SpawnShelterInteriorEntities(shelter, shelterData);
-            StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds, shelterData);
+            if (!SpawnShelterInteriorEntities(shelter, shelterData))
+            {
+                _storedData.Shelters.Remove(shelter.net.ID.Value);
+                DataFileUtil.Save(DataFileUtil.GetFilePath(), _storedData);
+                shelter.Kill();
+                return null;
+            }
 
+            if (_config.Turret.SpawnAutoTurret)
+                DeployAutoTurret(shelter, shelterData);
+
+            if (_config.Trap.SpawnLandmines || _config.Trap.SpawnBearTraps)
+                SpawnTrapsAroundShelter(shelter, shelterData);
+
+            StartRemovalTimer(shelter, _config.ShelterLifetimeSeconds, shelterData);
             return shelter;
         }
 
@@ -858,9 +796,9 @@ namespace Oxide.Plugins
                         continue;
 
                     if (_config.Notification.SendAsToast)
-                        SendToast(nearbyPlayer, Lang.RaidableShelterSpawned);
+                        ShowToast(nearbyPlayer, Lang.RaidableShelterSpawned);
                     else
-                        SendMessage(nearbyPlayer, Lang.RaidableShelterSpawned);
+                        MessagePlayer(nearbyPlayer, Lang.RaidableShelterSpawned);
                 }
 
                 Pool.FreeUnmanaged(ref nearbyPlayers);
@@ -868,9 +806,9 @@ namespace Oxide.Plugins
             else
             {
                 if (_config.Notification.SendAsToast)
-                    SendToast(player, Lang.RaidableShelterSpawned);
+                    ShowToast(player, Lang.RaidableShelterSpawned);
                 else
-                    SendMessage(player, Lang.RaidableShelterSpawned);
+                    MessagePlayer(player, Lang.RaidableShelterSpawned);
             }
         }
 
@@ -878,10 +816,11 @@ namespace Oxide.Plugins
 
         #region Interior Entities Spawning
 
-        private void SpawnShelterInteriorEntities(LegacyShelter shelter, ShelterData shelterData)
+        private bool SpawnShelterInteriorEntities(LegacyShelter shelter, ShelterData shelterData)
         {
             Vector3 shelterCenter = shelter.transform.position;
             float spawnRadius = SPAWNABLE_AREA_RADIUS_INSIDE_SHELTER;
+            bool anyEntitiesSpawned = false;
 
             foreach (InteriorEntityConfig interiorEntityConfig in _config.InteriorEntities)
             {
@@ -925,12 +864,16 @@ namespace Oxide.Plugins
                             shelterData.InteriorEntities.Add(entity.net.ID.Value);
                             ExposedHook.OnShelterInteriorEntitySpawned(shelter, entity);
 
+                            anyEntitiesSpawned = true;
+
                             posAttempt = maxPositionAttempts;
                             break;
                         }
                     }
                 }
             }
+
+            return anyEntitiesSpawned;
         }
 
         private bool EntityFitsInShelter(LegacyShelter shelter, string prefabPath, Vector3 potentialPosition, Quaternion potentialRotation)
@@ -1015,7 +958,7 @@ namespace Oxide.Plugins
 
         #region Turret Deployment and Setup
 
-        private void DeployAutoTurret(LegacyShelter shelter)
+        private void DeployAutoTurret(LegacyShelter shelter, ShelterData shelterData)
         {
             AutoTurret autoTurret = SpawnAutoTurret(shelter, _autoTurretPosition, Quaternion.Euler(_autoTurretRotation));
             if (autoTurret != null)
@@ -1028,8 +971,9 @@ namespace Oxide.Plugins
 
                 autoTurret.SetPeacekeepermode(_config.Turret.Peacekeeper);
                 autoTurret.InitiateStartup();
-
                 autoTurret.SendNetworkUpdate();
+
+                shelterData.Traps.Add(autoTurret.net.ID.Value);
             }
         }
 
@@ -1157,7 +1101,7 @@ namespace Oxide.Plugins
 
         #region Traps Spawning
 
-        private void SpawnTrapsAroundShelter(LegacyShelter shelter)
+        private void SpawnTrapsAroundShelter(LegacyShelter shelter, ShelterData shelterData)
         {
             Vector3 shelterPosition = shelter.transform.position;
             int numberOfTraps = Random.Range(_config.Trap.MinimumNumberOfTrapsToSpawn, _config.Trap.MaximumNumberOfTrapsToSpawn + 1);
@@ -1165,7 +1109,7 @@ namespace Oxide.Plugins
             for (int i = 0; i < numberOfTraps; i++)
             {
                 Vector3 randomPosition = TerrainUtil.GetRandomPositionAround(shelterPosition, _config.Trap.MinimumSpawnRadiusAroundShelter, _config.Trap.MaximumSpawnRadiusAroundShelter);
-                
+
                 RaycastHit groundHit;
                 if (!TerrainUtil.GetGroundInfo(randomPosition, out groundHit, 5f, LAYER_GROUND))
                     continue;
@@ -1182,6 +1126,7 @@ namespace Oxide.Plugins
                 {
                     trapEntity.SetParent(shelter, true);
                     trapEntity.Spawn();
+                    shelterData.Traps.Add(trapEntity.net.ID.Value);
                     RemoveProblematicComponents(trapEntity);
                 }
             }
@@ -1299,6 +1244,13 @@ namespace Oxide.Plugins
                             entity.Kill();
                     }
 
+                    foreach (ulong trapId in shelterData.Traps)
+                    {
+                        BaseEntity trapEntity = FindEntityById(trapId);
+                        if (trapEntity != null)
+                            trapEntity.Kill();
+                    }
+
                     shelter.Kill();
                 }
             }
@@ -1334,7 +1286,7 @@ namespace Oxide.Plugins
                 object hookResult = Interface.CallHook("OnShelterInteriorEntitySpawn", shelter, prefabName, position, rotation);
                 return hookResult is bool && (bool)hookResult == false;
             }
-            
+
             public static void OnShelterInteriorEntitySpawned(LegacyShelter shelter, BaseEntity entity)
             {
                 Interface.CallHook("OnShelterInteriorEntitySpawned", shelter, entity);
@@ -1344,7 +1296,7 @@ namespace Oxide.Plugins
         #endregion Exposed Hooks
 
         #region API
-        
+
         private bool API_IsShelterRaidable(LegacyShelter shelter)
         {
             return _storedData.Shelters.ContainsKey(shelter.net.ID.Value);
@@ -1358,7 +1310,7 @@ namespace Oxide.Plugins
         {
             return Random.Range(0, 2) == 0;
         }
-       
+
         private BaseEntity FindEntityById(ulong id)
         {
             return BaseNetworkable.serverEntities.Find(new NetworkableId(id)) as BaseEntity;
@@ -1684,6 +1636,73 @@ namespace Oxide.Plugins
             }
         }
 
+        public class DataFileUtil
+        {
+            private const string FOLDER = "";
+
+            public static string GetFilePath(string filename = null)
+            {
+                if (filename == null)
+                    filename = _plugin.Name;
+
+                return Path.Combine(FOLDER, filename);
+            }
+
+            public static string[] GetAllFilePaths()
+            {
+                string[] filePaths = Interface.Oxide.DataFileSystem.GetFiles(FOLDER);
+
+                for (int i = 0; i < filePaths.Length; i++)
+                {
+                    // Remove the redundant '.json' from the filepath. This is necessary because the filepaths are returned with a double '.json'.
+                    filePaths[i] = filePaths[i].Substring(0, filePaths[i].Length - 5);
+                }
+
+                return filePaths;
+            }
+
+            public static bool Exists(string filePath)
+            {
+                return Interface.Oxide.DataFileSystem.ExistsDatafile(filePath);
+            }
+
+            public static T Load<T>(string filePath) where T : class, new()
+            {
+                T data = Interface.Oxide.DataFileSystem.ReadObject<T>(filePath);
+                if (data == null)
+                    data = new T();
+
+                return data;
+            }
+
+            public static T LoadIfExists<T>(string filePath) where T : class, new()
+            {
+                if (Exists(filePath))
+                    return Load<T>(filePath);
+                else
+                    return null;
+            }
+
+            public static T LoadOrCreate<T>(string filePath) where T : class, new()
+            {
+                T data = LoadIfExists<T>(filePath);
+                if (data == null)
+                    data = new T();
+
+                return data;
+            }
+
+            public static void Save<T>(string filePath, T data)
+            {
+                Interface.Oxide.DataFileSystem.WriteObject<T>(filePath, data);
+            }
+
+            public static void Delete(string filePath)
+            {
+                Interface.Oxide.DataFileSystem.DeleteDataFile(filePath);
+            }
+        }
+
         #endregion Helper Classes
 
         #region Commands
@@ -1698,7 +1717,7 @@ namespace Oxide.Plugins
         {
             if (player == null || !player.IsAdmin)
                 return;
-            
+
             RaycastHit groundHit;
             if (TerrainUtil.GetGroundInfo(player.transform.position, out groundHit, 10f, LAYER_GROUND))
             {
@@ -1711,10 +1730,10 @@ namespace Oxide.Plugins
                 LegacyShelter shelter = SpawnLegacyShelter(spawnPosition, spawnRotation, player);
                 if (shelter != null)
                 {
-                    SendMessage(player, Lang.TestShelterSpawned);
+                    MessagePlayer(player, Lang.TestShelterSpawned);
                 }
             }
-        } 
+        }
 
         #endregion Commands
 
@@ -1735,21 +1754,25 @@ namespace Oxide.Plugins
             }, this, "en");
         }
 
-        private void SendMessage(BasePlayer player, string messageKey, params object[] args)
+        private static string GetMessage(BasePlayer player, string messageKey, params object[] args)
         {
-            string message = lang.GetMessage(messageKey, this, player.UserIDString);
+            string message = _plugin.lang.GetMessage(messageKey, _plugin, player.UserIDString);
+
             if (args.Length > 0)
                 message = string.Format(message, args);
 
-            SendReply(player, message);
+            return message;
         }
 
-        private void SendToast(BasePlayer player, string messageKey, GameTip.Styles style = GameTip.Styles.Blue_Normal, params object[] args)
+        public static void MessagePlayer(BasePlayer player, string messageKey, params object[] args)
         {
-            string message = lang.GetMessage(messageKey, this, player.UserIDString);
-            if (args.Length > 0)
-                message = string.Format(message, args);
+            string message = GetMessage(player, messageKey, args);
+            _plugin.SendReply(player, message);
+        }
 
+        public static void ShowToast(BasePlayer player, string messageKey, GameTip.Styles style = GameTip.Styles.Blue_Normal, params object[] args)
+        {
+            string message = GetMessage(player, messageKey, args);
             player.SendConsoleCommand("gametip.showtoast", (int)style, message);
         }
 
