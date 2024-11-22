@@ -19,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.7.1")]
+    [Info("Raidable Shelters", "VisEntities", "1.7.2")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -33,8 +33,8 @@ namespace Oxide.Plugins
         private Timer _sheltersRespawnTimer;
 
         private const int LAYER_GROUND = Layers.Mask.Terrain | Layers.Mask.World | Layers.Mask.Default;
-        private const int LAYER_PLAYER = Layers.Mask.Player_Server;
-        private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
+        private const int LAYER_PLAYERS = Layers.Mask.Player_Server;
+        private const int LAYER_DEPLOYABLES = Layers.Mask.Deployed | Layers.Mask.Construction;
 
         private const string PREFAB_AUTO_TURRET = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
@@ -660,7 +660,7 @@ namespace Oxide.Plugins
                     continue;
                 }
 
-                if (TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES))
+                if (TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_DEPLOYABLES))
                 {
                     if (_config.EnableDebug)
                         DrawDebugInfo(position, "Spawn failed:\nNearby entities", ParseColor("#E12126"), _config.NearbyEntitiesAvoidanceRadius);
@@ -788,7 +788,7 @@ namespace Oxide.Plugins
             if (_config.Notification.NotifySurroundingPlayersOfShelterSpawn)
             {
                 List<BasePlayer> nearbyPlayers = Pool.Get<List<BasePlayer>>();
-                Vis.Entities(shelter.transform.position, _config.Notification.RadiusForNotifyingNearbyPlayers, nearbyPlayers, LAYER_PLAYER, QueryTriggerInteraction.Ignore);
+                Vis.Entities(shelter.transform.position, _config.Notification.RadiusForNotifyingNearbyPlayers, nearbyPlayers, LAYER_PLAYERS, QueryTriggerInteraction.Ignore);
 
                 foreach (BasePlayer nearbyPlayer in nearbyPlayers)
                 {
@@ -854,7 +854,7 @@ namespace Oxide.Plugins
                             if (!EntityFitsInShelter(shelter, interiorEntityConfig.PrefabName, randomPosition, finalRotation))
                                 continue;
 
-                            if (ExposedHook.OnShelterInteriorEntitySpawn(shelter, interiorEntityConfig.PrefabName, randomPosition, finalRotation))
+                            if (OnShelterInteriorEntitySpawn(shelter, interiorEntityConfig.PrefabName, randomPosition, finalRotation))
                                 continue;
 
                             BaseEntity entity = SpawnInteriorEntity(shelter, randomPosition, finalRotation, interiorEntityConfig);
@@ -862,7 +862,7 @@ namespace Oxide.Plugins
                                 continue;
 
                             shelterData.InteriorEntities.Add(entity.net.ID.Value);
-                            ExposedHook.OnShelterInteriorEntitySpawned(shelter, entity);
+                            OnShelterInteriorEntitySpawned(shelter, entity);
 
                             anyEntitiesSpawned = true;
 
@@ -878,30 +878,26 @@ namespace Oxide.Plugins
 
         private bool EntityFitsInShelter(LegacyShelter shelter, string prefabPath, Vector3 potentialPosition, Quaternion potentialRotation)
         {
-            BaseEntity tempEntity = GameManager.server.CreateEntity(prefabPath, potentialPosition, potentialRotation, false);
-            if (tempEntity == null)
+            GameObject prefab = GameManager.server.FindPrefab(prefabPath);
+            if (prefab == null)
                 return false;
 
-            OBB bounds = tempEntity.WorldSpaceBounds();
-            tempEntity.Kill();
+            BaseEntity prefabEntity = prefab.GetComponent<BaseEntity>();
+            if (prefabEntity == null)
+                return false;
 
-            Vector3[] corners = new Vector3[8];
-            corners[0] = bounds.GetPoint(-1f, -1f, -1f);
-            corners[1] = bounds.GetPoint(-1f, -1f, 1f);
-            corners[2] = bounds.GetPoint(-1f, 1f, -1f);
-            corners[3] = bounds.GetPoint(-1f, 1f, 1f);
-            corners[4] = bounds.GetPoint(1f, -1f, -1f);
-            corners[5] = bounds.GetPoint(1f, -1f, 1f);
-            corners[6] = bounds.GetPoint(1f, 1f, -1f);
-            corners[7] = bounds.GetPoint(1f, 1f, 1f);
+            OBB entityBounds = new OBB(potentialPosition, potentialRotation, prefabEntity.bounds);
 
-            // Ensure the entity is within the shelter bounds and not clipping through or colliding with other objects inside.
-            Collider[] colliders = Physics.OverlapBox(bounds.position, bounds.extents, bounds.rotation, LAYER_ENTITIES);
-            foreach (Collider collider in colliders)
-            {
-                if (collider.gameObject != tempEntity.gameObject && collider.gameObject != shelter.gameObject)
-                    return false;
-            }
+            Collider[] colliders = Physics.OverlapBox(
+                entityBounds.position,
+                entityBounds.extents,
+                entityBounds.rotation,
+                LAYER_DEPLOYABLES,
+                QueryTriggerInteraction.Ignore
+            );
+
+            if (colliders.Length > 0)
+                return false;
 
             return true;
         }
@@ -1279,18 +1275,15 @@ namespace Oxide.Plugins
 
         #region Exposed Hooks
 
-        private static class ExposedHook
+        private static bool OnShelterInteriorEntitySpawn(LegacyShelter shelter, string prefabName, Vector3 position, Quaternion rotation)
         {
-            public static bool OnShelterInteriorEntitySpawn(LegacyShelter shelter, string prefabName, Vector3 position, Quaternion rotation)
-            {
-                object hookResult = Interface.CallHook("OnShelterInteriorEntitySpawn", shelter, prefabName, position, rotation);
-                return hookResult is bool && (bool)hookResult == false;
-            }
+            object hookResult = Interface.CallHook("OnShelterInteriorEntitySpawn", shelter, prefabName, position, rotation);
+            return hookResult is bool && (bool)hookResult == false;
+        }
 
-            public static void OnShelterInteriorEntitySpawned(LegacyShelter shelter, BaseEntity entity)
-            {
-                Interface.CallHook("OnShelterInteriorEntitySpawned", shelter, entity);
-            }
+        private static void OnShelterInteriorEntitySpawned(LegacyShelter shelter, BaseEntity entity)
+        {
+            Interface.CallHook("OnShelterInteriorEntitySpawned", shelter, entity);
         }
 
         #endregion Exposed Hooks
