@@ -19,7 +19,7 @@ using Random = UnityEngine.Random;
 
 namespace Oxide.Plugins
 {
-    [Info("Raidable Shelters", "VisEntities", "1.7.2")]
+    [Info("Raidable Shelters", "VisEntities", "1.7.3")]
     [Description("Spawns shelters filled with loot for players to raid.")]
     public class RaidableShelters : RustPlugin
     {
@@ -34,7 +34,7 @@ namespace Oxide.Plugins
 
         private const int LAYER_GROUND = Layers.Mask.Terrain | Layers.Mask.World | Layers.Mask.Default;
         private const int LAYER_PLAYERS = Layers.Mask.Player_Server;
-        private const int LAYER_DEPLOYABLES = Layers.Mask.Deployed | Layers.Mask.Construction;
+        private const int LAYER_ENTITIES = Layers.Mask.Deployed | Layers.Mask.Construction;
 
         private const string PREFAB_AUTO_TURRET = "assets/prefabs/npc/autoturret/autoturret_deployed.prefab";
         private const string PREFAB_LEGACY_SHELTER = "assets/prefabs/building/legacy.shelter.wood/legacy.shelter.wood.deployed.prefab";
@@ -660,7 +660,7 @@ namespace Oxide.Plugins
                     continue;
                 }
 
-                if (TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_DEPLOYABLES))
+                if (TerrainUtil.HasEntityNearby(position, _config.NearbyEntitiesAvoidanceRadius, LAYER_ENTITIES))
                 {
                     if (_config.EnableDebug)
                         DrawDebugInfo(position, "Spawn failed:\nNearby entities", ParseColor("#E12126"), _config.NearbyEntitiesAvoidanceRadius);
@@ -892,7 +892,7 @@ namespace Oxide.Plugins
                 entityBounds.position,
                 entityBounds.extents,
                 entityBounds.rotation,
-                LAYER_DEPLOYABLES,
+                LAYER_ENTITIES,
                 QueryTriggerInteraction.Ignore
             );
 
@@ -1457,11 +1457,15 @@ namespace Oxide.Plugins
                 return hasEntityNearby;
             }
 
-            public static Vector3 GetRandomPositionAround(Vector3 center, float minimumRadius, float maximumRadius, bool adjustToWaterHeight = false)
+            public static Vector3 GetRandomPositionAround(Vector3 position, float minimumRadius, float maximumRadius, bool adjustToWaterHeight = false)
             {
-                Vector3 randomDirection = Random.onUnitSphere;
+                float angle = Random.Range(0f, Mathf.PI * 2f);
                 float randomDistance = Random.Range(minimumRadius, maximumRadius);
-                Vector3 randomPosition = center + randomDirection * randomDistance;
+
+                float offsetX = Mathf.Cos(angle) * randomDistance;
+                float offsetZ = Mathf.Sin(angle) * randomDistance;
+
+                Vector3 randomPosition = position + new Vector3(offsetX, 0f, offsetZ);
 
                 if (adjustToWaterHeight)
                     randomPosition.y = TerrainMeta.WaterMap.GetHeight(randomPosition);
